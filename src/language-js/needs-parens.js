@@ -11,12 +11,21 @@ import {
   isBitwiseOperator,
   isCallExpression,
   isMemberExpression,
+  isNullishCoalescing,
   isObjectOrRecordExpression,
   isObjectProperty,
   shouldFlatten,
   startsWithNoLookaheadToken,
 } from "./utils/index.js";
 
+/**
+ * @typedef {import("../common/ast-path.js").default} AstPath
+ */
+
+/**
+ * @param {AstPath} path
+ * @returns {boolean}
+ */
 function needsParens(path, options) {
   if (path.isRoot) {
     return false;
@@ -48,7 +57,7 @@ function needsParens(path, options) {
     //     f((a + b) / 2)  vs  f(a + b / 2)
     if (
       node.extra?.parenthesized &&
-      /^PRETTIER_HTML_PLACEHOLDER_\d+_\d+_IN_JS$/.test(node.name)
+      /^PRETTIER_HTML_PLACEHOLDER_\d+_\d+_IN_JS$/u.test(node.name)
     ) {
       return true;
     }
@@ -215,40 +224,10 @@ function needsParens(path, options) {
       );
 
     case "Decorator":
-      if (key === "expression") {
-        if (isMemberExpression(node) && node.computed) {
-          return true;
-        }
-
-        let hasCallExpression = false;
-        let hasMemberExpression = false;
-        let current = node;
-        while (current) {
-          switch (current.type) {
-            case "MemberExpression":
-              hasMemberExpression = true;
-              current = current.object;
-              break;
-            case "CallExpression":
-              if (
-                /** @(x().y) */ hasMemberExpression ||
-                /** @(x().y()) */ hasCallExpression
-              ) {
-                return options.parser !== "typescript";
-              }
-              hasCallExpression = true;
-              current = current.callee;
-              break;
-            case "Identifier":
-              return false;
-            case "TaggedTemplateExpression":
-              // babel-parser cannot parse
-              //   @foo`bar`
-              return options.parser !== "typescript";
-            default:
-              return true;
-          }
-        }
+      if (
+        key === "expression" &&
+        !canDecoratorExpressionUnparenthesized(node)
+      ) {
         return true;
       }
       break;
@@ -275,6 +254,24 @@ function needsParens(path, options) {
         key === "left" &&
         (parent.operator === "in" || parent.operator === "instanceof") &&
         node.type === "UnaryExpression"
+      ) {
+        return true;
+      }
+      break;
+
+    case "VariableDeclarator":
+      // Legacy syntax
+      // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Errors/Invalid_for-in_initializer
+      // `for (var a = 1 in b);`
+      if (
+        key === "init" &&
+        path.match(
+          undefined,
+          undefined,
+          (node, key) =>
+            key === "declarations" && node.type === "VariableDeclaration",
+          (node, key) => key === "left" && node.type === "ForInStatement",
+        )
       ) {
         return true;
       }
@@ -366,7 +363,7 @@ function needsParens(path, options) {
           return !isBinaryCastExpression(node);
 
         case "ConditionalExpression":
-          return isBinaryCastExpression(node);
+          return isBinaryCastExpression(node) || isNullishCoalescing(node);
 
         case "CallExpression":
         case "NewExpression":
@@ -1066,6 +1063,10 @@ const isStatement = createTypeCheckFunction([
   "WithStatement",
 ]);
 
+/**
+ * @param {AstPath} path
+ * @returns {boolean}
+ */
 function isPathInForStatementInitializer(path) {
   let i = 0;
   let { node } = path;
@@ -1093,6 +1094,10 @@ function endsWithRightBracket(node) {
   return isObjectOrRecordExpression(node);
 }
 
+/**
+ * @param {AstPath} path
+ * @returns {boolean}
+ */
 function isFollowedByRightBracket(path) {
   const { parent, key } = path;
   switch (parent.type) {
@@ -1126,6 +1131,10 @@ function isFollowedByRightBracket(path) {
   return false;
 }
 
+/**
+ * @param {AstPath} path
+ * @returns {boolean}
+ */
 function shouldWrapFunctionForExportDefault(path, options) {
   const { node, parent } = path;
 
@@ -1170,6 +1179,10 @@ new (a?.b)();
 new (a?.())();
 ```
 */
+/**
+ * @param {AstPath} path
+ * @returns {boolean}
+ */
 function shouldAddParenthesesToChainElement(path) {
   // Babel, this was implemented before #13735, can use `path.match` as estree does
   const { node, parent, grandparent, key } = path;
@@ -1231,6 +1244,38 @@ function shouldAddParenthesesToChainElement(path) {
 
   // This function only handle cases above
   return false;
+}
+
+function isDecoratorMemberExpression(node) {
+  if (node.type === "Identifier") {
+    return true;
+  }
+
+  if (isMemberExpression(node)) {
+    return (
+      !node.computed &&
+      !node.optional &&
+      node.property.type === "Identifier" &&
+      isDecoratorMemberExpression(node.object)
+    );
+  }
+
+  return false;
+}
+
+// Based on babel implementation
+// https://github.com/nicolo-ribaudo/babel/blob/c4b88a4e5005364255f7e964fe324cf7bfdfb019/packages/babel-generator/src/node/index.ts#L111
+function canDecoratorExpressionUnparenthesized(node) {
+  if (node.type === "ChainExpression") {
+    node = node.expression;
+  }
+
+  return (
+    isDecoratorMemberExpression(node) ||
+    (isCallExpression(node) &&
+      !node.optional &&
+      isDecoratorMemberExpression(node.callee))
+  );
 }
 
 export default needsParens;

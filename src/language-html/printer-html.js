@@ -2,7 +2,7 @@
  * @typedef {import("../document/builders.js").Doc} Doc
  */
 
-import { fill, group, hardline } from "../document/builders.js";
+import { fill, group, hardline, indent, line } from "../document/builders.js";
 import { cleanDoc, replaceEndOfLine } from "../document/utils.js";
 import getPreferredQuote from "../utils/get-preferred-quote.js";
 import htmlWhitespaceUtils from "../utils/html-whitespace-utils.js";
@@ -53,6 +53,18 @@ function genericPrint(path, options, print) {
     case "angularControlFlowBlockParameter":
       return htmlWhitespaceUtils.trim(node.expression);
 
+    case "angularLetDeclaration":
+      // print like "break-after-operator" layout assignment in estree printer
+      return group([
+        "@let ",
+        group([node.id, " =", group(indent([line, print("init")]))]),
+        // semicolon is required
+        ";",
+      ]);
+    case "angularLetDeclarationInitializer":
+      // basically printed via embedded formatting
+      return node.value;
+
     case "angularIcuExpression":
       return printAngularIcuExpression(path, options, print);
     case "angularIcuCase":
@@ -70,7 +82,7 @@ function genericPrint(path, options, print) {
     case "text": {
       if (node.parent.type === "interpolation") {
         // replace the trailing literalline with hardline for better readability
-        const trailingNewlineRegex = /\n[^\S\n]*$/;
+        const trailingNewlineRegex = /\n[^\S\n]*$/u;
         const hasTrailingNewline = trailingNewlineRegex.test(node.value);
         const value = hasTrailingNewline
           ? node.value.replace(trailingNewlineRegex, "")
@@ -95,7 +107,7 @@ function genericPrint(path, options, print) {
         group([
           printOpeningTagStart(node, options),
           " ",
-          node.value.replace(/^html\b/i, "html").replaceAll(/\s+/g, " "),
+          node.value.replace(/^html\b/iu, "html").replaceAll(/\s+/gu, " "),
         ]),
         printClosingTagEnd(node, options),
       ];

@@ -1,4 +1,5 @@
 import collapseWhiteSpace from "collapse-white-space";
+import escapeStringRegexp from "escape-string-regexp";
 
 import {
   align,
@@ -41,11 +42,7 @@ import {
  * @typedef {import("../document/builders.js").Doc} Doc
  */
 
-const SIBLING_NODE_TYPES = new Set([
-  "listItem",
-  "definition",
-  "footnoteDefinition",
-]);
+const SIBLING_NODE_TYPES = new Set(["listItem", "definition"]);
 
 function genericPrint(path, options, print) {
   const { node } = path;
@@ -92,20 +89,20 @@ function genericPrint(path, options, print) {
       return printSentence(path, print);
     case "word": {
       let escapedValue = node.value
-        .replaceAll("*", "\\*") // escape all `*`
+        .replaceAll("*", String.raw`\*`) // escape all `*`
         .replaceAll(
           new RegExp(
             [
               `(^|${PUNCTUATION_REGEXP.source})(_+)`,
               `(_+)(${PUNCTUATION_REGEXP.source}|$)`,
             ].join("|"),
-            "g",
+            "gu",
           ),
           (_, text1, underscore1, underscore2, text2) =>
             (underscore1
               ? `${text1}${underscore1}`
               : `${underscore2}${text2}`
-            ).replaceAll("_", "\\_"),
+            ).replaceAll("_", String.raw`\_`),
         ); // escape all `_` except concating with non-punctuation, e.g. `1_2_3` is not considered emphasis
 
       const isFirstSentence = (node, name, index) =>
@@ -124,7 +121,7 @@ function genericPrint(path, options, print) {
           ))
       ) {
         // backslash is parsed as part of autolinks, so we need to remove it
-        escapedValue = escapedValue.replace(/^(\\?[*_])+/, (prefix) =>
+        escapedValue = escapedValue.replace(/^(\\?[*_])+/u, (prefix) =>
           prefix.replaceAll("\\", ""),
         );
       }
@@ -136,7 +133,7 @@ function genericPrint(path, options, print) {
 
       const proseWrap =
         // leading char that may cause different syntax
-        next && /^>|^(?:[*+-]|#{1,6}|\d+[).])$/.test(next.value)
+        next && /^>|^(?:[*+-]|#{1,6}|\d+[).])$/u.test(next.value)
           ? "never"
           : options.proseWrap;
 
@@ -177,7 +174,7 @@ function genericPrint(path, options, print) {
       const padding =
         code.startsWith("`") ||
         code.endsWith("`") ||
-        (/^[\n ]/.test(code) && /[\n ]$/.test(code) && /[^\n ]/.test(code))
+        (/^[\n ]/u.test(code) && /[\n ]$/u.test(code) && /[^\n ]/u.test(code))
           ? " "
           : "";
       return [backtickString, padding, code, padding, backtickString];
@@ -187,7 +184,7 @@ function genericPrint(path, options, print) {
       if (options.proseWrap === "preserve") {
         contents = node.value;
       } else {
-        contents = node.value.replaceAll(/[\t\n]+/g, " ");
+        contents = node.value.replaceAll(/[\t\n]+/gu, " ");
       }
 
       return ["[[", contents, "]]"];
@@ -270,7 +267,7 @@ function genericPrint(path, options, print) {
       const { parent, isLast } = path;
       const value =
         parent.type === "root" && isLast ? node.value.trimEnd() : node.value;
-      const isHtmlComment = /^<!--.*-->$/s.test(value);
+      const isHtmlComment = /^<!--.*-->$/su.test(value);
 
       return replaceEndOfLine(
         value,
@@ -405,7 +402,6 @@ function genericPrint(path, options, print) {
                     isFirst ? group([softline, print()]) : print(),
                 }),
               ),
-              path.next?.type === "footnoteDefinition" ? softline : "",
             ]),
       ];
     }
@@ -414,7 +410,7 @@ function genericPrint(path, options, print) {
     case "tableCell":
       return printChildren(path, options, print);
     case "break":
-      return /\s/.test(options.originalText[node.position.start.offset])
+      return /\s/u.test(options.originalText[node.position.start.offset])
         ? ["  ", markAsRoot(literalline)]
         : ["\\", hardline];
     case "liquidNode":
@@ -620,7 +616,9 @@ function isPrettierIgnore(node) {
   let match;
 
   if (node.type === "html") {
-    match = node.value.match(/^<!--\s*prettier-ignore(?:-(start|end))?\s*-->$/);
+    match = node.value.match(
+      /^<!--\s*prettier-ignore(?:-(start|end))?\s*-->$/u,
+    );
   } else {
     let comment;
 
@@ -635,7 +633,7 @@ function isPrettierIgnore(node) {
     }
 
     if (comment) {
-      match = comment.value.match(/^prettier-ignore(?:-(start|end))?$/);
+      match = comment.value.match(/^prettier-ignore(?:-(start|end))?$/u);
     }
   }
 
@@ -728,7 +726,10 @@ function printUrl(url, dangerousCharOrChars = []) {
       : [dangerousCharOrChars]),
   ];
 
-  return new RegExp(dangerousChars.map((x) => `\\${x}`).join("|")).test(url)
+  return new RegExp(
+    dangerousChars.map((x) => escapeStringRegexp(x)).join("|"),
+    "u",
+  ).test(url)
     ? `<${encodeUrl(url, "<>")}>`
     : url;
 }
@@ -742,7 +743,7 @@ function printTitle(title, options, printSpace = true) {
   }
 
   // title is escaped after `remark-parse` v7
-  title = title.replaceAll(/\\(?=["')])/g, "");
+  title = title.replaceAll(/\\(?=["')])/gu, "");
 
   if (title.includes('"') && title.includes("'") && !title.includes(")")) {
     return `(${title})`; // avoid escaped quotes

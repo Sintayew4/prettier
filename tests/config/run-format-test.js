@@ -152,6 +152,14 @@ function runFormatTest(fixtures, parsers, options) {
   let { importMeta, snippets = [] } = fixtures.importMeta
     ? fixtures
     : { importMeta: fixtures };
+
+  // TODO: Remove this in 2025
+  // Prevent the old files `jsfmt.spec.js` get merged by accident
+  const filename = path.basename(new URL(importMeta.url).pathname);
+  if (filename !== "format.test.js") {
+    throw new Error(`'${filename}' has been renamed as 'format.test.js'.`);
+  }
+
   const dirname = path.dirname(url.fileURLToPath(importMeta.url));
 
   // `IS_PARSER_INFERENCE_TESTS` mean to test `inferParser` on `standalone`
@@ -199,7 +207,7 @@ function runFormatTest(fixtures, parsers, options) {
         path.extname(basename) === ".snap" ||
         !file.isFile() ||
         basename[0] === "." ||
-        basename === "jsfmt.spec.js" ||
+        basename === "format.test.js" ||
         // VSCode creates this file sometime https://github.com/microsoft/vscode/issues/105191
         basename === "debug.log"
       ) {
@@ -414,7 +422,7 @@ async function runTest({
   if (!shouldSkipEolTest(code, formatResult.options)) {
     for (const eol of ["\r\n", "\r"]) {
       const { eolVisualizedOutput: output } = await format(
-        code.replace(/\n/g, eol),
+        code.replace(/\n/gu, eol),
         formatOptions,
       );
       // Only if `endOfLine: "auto"` the result will be different
@@ -422,7 +430,7 @@ async function runTest({
         formatOptions.endOfLine === "auto"
           ? visualizeEndOfLine(
               // All `code` use `LF`, so the `eol` of result is always `LF`
-              formatResult.outputWithCursor.replace(/\n/g, eol),
+              formatResult.outputWithCursor.replace(/\n/gu, eol),
             )
           : formatResult.eolVisualizedOutput;
       expect(output).toEqual(expected);

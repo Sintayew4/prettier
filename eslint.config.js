@@ -1,6 +1,6 @@
-import fs from "node:fs/promises";
 import url from "node:url";
 
+import { fixupPluginRules } from "@eslint/compat";
 import { FlatCompat } from "@eslint/eslintrc";
 import eslintPluginJs from "@eslint/js";
 import eslintPluginStylisticJs from "@stylistic/eslint-plugin-js";
@@ -19,10 +19,38 @@ import eslintPluginPrettierInternalRules from "./scripts/tools/eslint-plugin-pre
 
 const toPath = (file) => url.fileURLToPath(new URL(file, import.meta.url));
 const compat = new FlatCompat({ baseDirectory: toPath("./") });
+eslintPluginReactConfigRecommended.plugins.react = fixupPluginRules(
+  eslintPluginReactConfigRecommended.plugins.react,
+);
+
+const ignores = `
+.tmp
+# Ignore directories and files in 'tests/format'
+tests/format/**/*
+# Unignore directories and 'jsfmt.spec.js', 'format.test.js' file
+!tests/format/**/
+!tests/format/**/format.test.js
+# TODO: Remove this in 2025
+!tests/format/**/jsfmt.spec.js
+tests/integration/cli/
+test*.*
+scripts/release/node_modules
+coverage/
+dist*/
+**/node_modules/**
+website/build/
+website/static/playground.js
+website/static/lib/
+scripts/benchmark/*/
+**/.yarn/**
+**/.pnp.*
+`
+  .split("\n")
+  .filter((pattern) => pattern && !pattern.startsWith("#"));
 
 export default [
   eslintPluginJs.configs.recommended,
-  ...compat.config(eslintPluginRegexp.configs.recommended),
+  eslintPluginRegexp.configs["flat/recommended"],
   eslintPluginUnicorn.configs["flat/recommended"],
   eslintConfigPrettier,
   ...compat.env({ es2024: true, node: true }),
@@ -54,11 +82,6 @@ export default [
       "no-implicit-coercion": "error",
       "no-inner-declarations": "error",
       "no-lonely-if": "error",
-      "no-restricted-syntax": [
-        "error",
-        // `!foo === bar` and `!foo !== bar`
-        'BinaryExpression[operator=/^[!=]==$/] > UnaryExpression.left[operator="!"]',
-      ],
       "no-unneeded-ternary": "error",
       "no-useless-return": "error",
       "no-unused-expressions": [
@@ -111,6 +134,7 @@ export default [
       "prefer-rest-params": "error",
       "prefer-spread": "error",
       "require-await": "error",
+      "require-unicode-regexp": "error",
       "symbol-description": "error",
       yoda: [
         "error",
@@ -126,9 +150,7 @@ export default [
       "prettier-internal-rules/no-identifier-n": "error",
       "prettier-internal-rules/prefer-fs-promises-submodule": "error",
 
-      // @typescript-eslint/eslint-plugin
-      "@typescript-eslint/prefer-ts-expect-error": "error",
-
+      /* @stylistic/eslint-plugin-js */
       "@stylistic/js/quotes": [
         "error",
         "double",
@@ -137,7 +159,10 @@ export default [
         },
       ],
 
-      // eslint-plugin-import
+      /* @typescript-eslint/eslint-plugin */
+      "@typescript-eslint/prefer-ts-expect-error": "error",
+
+      /* eslint-plugin-import */
       "import/no-extraneous-dependencies": [
         "error",
         {
@@ -151,10 +176,10 @@ export default [
         },
       ],
 
-      // eslint-plugin-n
+      /* eslint-plugin-n */
       "n/no-path-concat": "error",
 
-      // eslint-plugin-regexp
+      /* eslint-plugin-regexp */
       "regexp/match-any": [
         "error",
         {
@@ -177,10 +202,6 @@ export default [
           strictTypes: false,
         },
       ],
-      // Conflicting with `unicorn/better-regex`
-      "regexp/strict": "off",
-      // Hard to fix
-      "regexp/no-empty-alternative": "off",
       "regexp/no-super-linear-backtracking": "off",
       "regexp/unicode-property": [
         "error",
@@ -195,10 +216,11 @@ export default [
         },
       ],
 
+      /* eslint-plugin-simple-import-sort */
       "simple-import-sort/imports": "error",
       "simple-import-sort/exports": "error",
 
-      // eslint-plugin-unicorn
+      /* eslint-plugin-unicorn */
       "unicorn/escape-case": "off",
       "unicorn/catch-error-name": "off",
       "unicorn/consistent-destructuring": "off",
@@ -252,12 +274,15 @@ export default [
       "unicorn/prevent-abbreviations": "off",
       "unicorn/relative-url-style": "off",
       "unicorn/switch-case-braces": ["error", "avoid"],
+      "unicorn/template-indent": "error",
+    },
+
+    linterOptions: {
+      reportUnusedDisableDirectives: "error",
     },
   },
   {
-    ignores: (await fs.readFile("./.eslintignore", "utf8"))
-      .split("\n")
-      .filter((pattern) => pattern && !pattern.startsWith("#")),
+    ignores,
   },
   // CommonJS modules
   {
@@ -290,7 +315,7 @@ export default [
   {
     files: [
       "tests/config/**/*.js",
-      "tests/format/**/jsfmt.spec.js",
+      "tests/format/**/format.test.js",
       "tests/integration/**/*.js",
       "tests/unit/**/*.js",
       "tests/dts/unit/**/*.js",
@@ -420,6 +445,7 @@ export default [
   ...compat
     .env({ browser: true, worker: true })
     .map((config) => ({ ...config, files: ["website/**/*"] })),
+  // Use `Object.assign` since it contains non-enumerable properties
   Object.assign(eslintPluginReactConfigRecommended, {
     files: ["website/**/*"],
     settings: {
@@ -441,6 +467,13 @@ export default [
     files: ["website/playground/**/*"],
     languageOptions: {
       sourceType: "module",
+    },
+  },
+  // `import/no-extraneous-dependencies` reports on Windows but not on CI
+  {
+    files: ["website/siteConfig.js"],
+    linterOptions: {
+      reportUnusedDisableDirectives: "off",
     },
   },
   {
